@@ -1,0 +1,87 @@
+from django.db import models
+
+class Player(models.Model):
+    player_id = models.CharField(max_length=100)
+    
+    
+class Level(models.Model):
+    title = models.CharField(max_length=100)
+    order = models.IntegerField(default=0)    
+    
+    
+class Prize(models.Model):
+    title = models.CharField()
+    
+    
+class PlayerLevel(models.Model):
+    player = models.ForeignKey(Player, on_delete=models.CASCADE)
+    level = models.ForeignKey(Level, on_delete=models.CASCADE)
+    completed = models.DateField()
+    is_completed = models.BooleanField(default=False)
+    score = models.PositiveIntegerField(default=0)
+    
+    
+class LevelPrize(models.Model):
+    level = models.ForeignKey(Level, on_delete=models.CASCADE)
+    prize = models.ForeignKey(Prize, on_delete=models.CASCADE)
+    received = models.DateField()
+     
+     
+services.py
+
+import csv
+from django.db import transaction
+from django.utils import timezone
+from .models import PlayerLevel, LevelPrize, Prize
+
+@transaction.atomic
+def assign_prize(player_level: PlayerLevel, prize: Prize) -> str:
+    """
+    Назначение приза игроку за прохождение уровня.
+    """
+    if not player_level.is_completed:
+        raise ValueError("Нельзя выдать приз за непройденный уровень")
+
+    # Проверим, есть ли уже приз за этот уровень
+    if LevelPrize.objects.filter(level=player_level.level, prize=prize).exists():
+        return "Приз уже выдан за этот уровень"
+
+    LevelPrize.objects.create(
+        level=player_level.level,
+        prize=prize,
+        received=timezone.now().date()
+    )
+    return "Приз успешно выдан"
+
+def export_players_levels_to_csv(file_path: str) -> None:
+    """
+    Экспортирует данные в CSV:
+    id игрока, название уровня, пройден ли уровень, приз за уровень.
+    Использует iterator() для работы с большими данными.
+    """
+    queryset = (
+        PlayerLevel.objects
+        .select_related("player", "level")
+        .iterator(chunk_size=2000)  # чтобы не грузить всю таблицу в память
+    )
+
+    with open(file_path, mode="w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["player_id", "level_title", "is_completed", "prize_title"])
+
+        for pl in queryset:
+            # Ищем приз (если он есть) для уровня
+            prize = (
+                LevelPrize.objects
+                .filter(level=pl.level)
+                .select_related("prize")
+                .first()
+            )
+            prize_title = prize.prize.title if prize else ""
+
+            writer.writerow([
+                pl.player.player_id,
+                pl.level.title,
+                pl.is_completed,
+                prize_title
+            ])
