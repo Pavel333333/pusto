@@ -1,0 +1,67 @@
+from django.db import models
+from django.contrib.auth.models import User
+from django.utils import timezone
+
+class Player(models.Model):
+    """Модель игрока.
+
+    Attributes:
+        username (str): Ник игрока.
+        created_at (datetime): Дата создания.
+        first_login_at (datetime): Время первого логина.
+        total_points (Product): Бонусы.
+
+    Returns:
+        str: Строковое представление ника игрока.
+
+    """
+    username = models.CharField(max_length=50, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    first_login_at = models.DateTimeField(null=True, blank=True)
+    total_points = models.PositiveIntegerField(default=0)
+
+    def record_login(self):
+        """Фиксирует вход и начисляет баллы. Фиксирует первый вход для аналитики."""
+        now = timezone.now()
+        if not self.first_login_at:
+            self.first_login_at = now  # Фиксируем первый вход для аналитики.
+            self.total_points += 1  # Начисление баллов за первый вход в день.     
+        self.save()
+
+    def __str__(self):
+        return self.username
+
+
+class Boost(models.Model):
+    """Модель для бустов.
+
+    Attributes:
+        player (str): Игрок.
+        boost_type (str): Тип буста.
+        granted_at (datetime): Время выдачи буста игроку.
+        source (str): Тип выдачи буста.
+
+    Returns:
+        str: Строковое представление ника игрока и типа буста.
+
+    """
+    BOOST_TYPES = [
+        ('double_points', 'Удвоение очков'),
+        ('extra_time', 'Дополнительное время'),
+        ('no_ads', 'Без рекламы'),
+        ('energy_boost', 'Ускорение восстановления энергии'),
+    ]
+
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='boosts')
+    boost_type = models.CharField(max_length=20, choices=BOOST_TYPES)
+    granted_at = models.DateTimeField(auto_now_add=True)
+    source = models.CharField(
+        max_length=20,
+        choices=[
+            ('level', 'За прохождение уровня'),
+            ('manual', 'Назначен вручную'),
+        ]
+    )
+
+    def __str__(self):
+        return f"{self.player.username} — {self.get_boost_type_display()}"
